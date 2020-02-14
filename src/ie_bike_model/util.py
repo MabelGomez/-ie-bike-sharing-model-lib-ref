@@ -11,18 +11,23 @@ FALL_EQUINOX = dt.datetime(2000, 9, 21)
 
 def get_data_directory():
     """Gets directory where data is located.
-
     """
     lib_dir = os.path.dirname(__file__)
     data_dir = os.path.join(lib_dir, "data")
     return data_dir
 
 
-def get_model_path(model_dir=None):
+def get_model_path(model_dir=None, model_al=None):
+
     if model_dir is None:
         model_dir = os.path.dirname(__file__)
 
-    model_path = os.path.join(model_dir, "model.pkl")
+    if model_al == "ridge":
+        model_path = os.path.join(model_dir, "ridge.pkl")
+
+    else:
+        model_path = os.path.join(model_dir, "xgboost.pkl")
+
     return model_path
 
 
@@ -36,7 +41,6 @@ def read_data(hour_path=None):
 
 def get_season(date):
     """Get season, assuming fixed equinoxes and solstices.
-
     """
     # For comparison purposes
     date = date.replace(year=2000)

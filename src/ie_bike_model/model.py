@@ -9,6 +9,7 @@ import pandas as pd
 from pandas.tseries.holiday import USFederalHolidayCalendar as calendar
 from scipy.stats import skew
 from xgboost import XGBRegressor
+from sklearn.linear_model import Ridge
 
 from ie_bike_model.util import read_data, get_season, get_model_path
 
@@ -150,18 +151,43 @@ def train_xgboost(hour):
     hour_d_train_x, _, hour_d_train_y, _, = split_train_test(hour_d)
 
     xgb = XGBRegressor(
-        max_depth=3,
+        max_depth=6,
         learning_rate=0.01,
-        n_estimators=15,
+        n_estimators=100,
         objective="reg:squarederror",
         subsample=0.8,
         colsample_bytree=1,
-        seed=1234,
+        random_state=123,
         gamma=1,
     )
 
     xgb.fit(hour_d_train_x, hour_d_train_y)
-    return xgb
+    score = xgb.score(hour_d_train_x, hour_d_train_y)
+
+    return xgb, score
+
+
+def train_ridge(hour):
+    # Avoid modifying the original dataset at the cost of RAM
+    hour = hour.copy()
+
+    hour_d = pd.get_dummies(hour)
+    regex = re.compile(r"\[|\]|<", re.IGNORECASE)
+    hour_d.columns = [
+        regex.sub("_", col) if any(x in str(col) for x in set(("[", "]", "<"))) else col
+        for col in hour_d.columns.values
+    ]
+
+    hour_d = hour_d.select_dtypes(exclude="category")
+
+    hour_d_train_x, _, hour_d_train_y, _, = split_train_test(hour_d)
+
+    ridge = Ridge(alpha=0.1, random_state=42)
+
+    ridge.fit(hour_d_train_x, hour_d_train_y)
+    score = ridge.score(hour_d_train_x, hour_d_train_y)
+
+    return ridge, score
 
 
 def postprocess(hour):
@@ -172,18 +198,24 @@ def postprocess(hour):
     return hour
 
 
-def train_and_persist(model_dir=None, hour_path=None):
+def train_and_persist(model_dir=None, hour_path=None, model="xgboost"):
     hour = read_data(hour_path)
     hour = preprocess(hour)
     hour = dummify(hour)
     hour = postprocess(hour)
 
-    # TODO: Implement other models?
-    model = train_xgboost(hour)
+    model_path = get_model_path(model_dir, model)
 
-    model_path = get_model_path(model_dir)
+    # Implement other models?
+    if model == "ridge":
+        model_object, score_train = train_ridge(hour)
 
-    joblib.dump(model, model_path)
+    else:
+        model_object, score_train = train_xgboost(hour)
+
+    joblib.dump(model_object, model_path)
+
+    return score_train
 
 
 def get_input_dict(parameters):
@@ -228,13 +260,16 @@ def get_input_dict(parameters):
     return df.iloc[0].to_dict()
 
 
-def predict(parameters, model_dir=None):
+def predict(parameters, model_dir=None, model=None):
     """Returns model prediction.
-
     """
-    model_path = get_model_path(model_dir)
-    if not os.path.exists(model_path):
-        train_and_persist(model_dir)
+
+    if model == "ridge":
+        model_path = get_model_path(model_dir, model_al="ridge")
+        train_and_persist(model_dir=model_dir, model="ridge")
+    else:
+        model_path = get_model_path(model_dir, model_al="xgboost")
+        train_and_persist(model_dir=model_dir, model="xgboost")
 
     model = joblib.load(model_path)
 
